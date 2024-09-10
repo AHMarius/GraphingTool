@@ -10,7 +10,7 @@ struct Vector2 {
 
 struct pixel {
 	unsigned char r, g, b, a;
-	pixel() : r(0), g(0), b(0), a(255) {}  // Default constructor
+	pixel() : r(0), g(0), b(0), a(255) {}  // Default constructo
 };
 
 struct object {

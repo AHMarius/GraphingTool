@@ -1,217 +1,231 @@
-#include <raylib.h>
+#include "raylib.h"
+#include "muParser.h"
+#include "Marius.hpp"
+#include <string>
 #include <iostream>
 #include <vector>
-#include <cmath>
+#include <cmath> // For standard math functions
 
-struct Vector2 {
-	float x, y;
-	Vector2(float x = 0, float y = 0) : x(x), y(y) {}
-};
+Vector2 point = { -1, -1 };  // Initialize to -1 to indicate no point selected yet
 
-struct pixel {
-	unsigned char r, g, b, a;
-	pixel() : r(0), g(0), b(0), a(255) {}  // Default constructo
-};
+void InitializeParser(mu::Parser& parser) {
+	// Register trigonometric functions
+	parser.DefineFun("COS", [](double x) { return std::cos(x); });
+	parser.DefineFun("SIN", [](double x) { return std::sin(x); });
+	parser.DefineFun("TAN", [](double x) { return std::tan(x); });
 
-struct object {
-	std::vector<Vector2> vertex;
-	Vector2 size;
-	Vector2 minVertex;  // Minimum vertex coordinates
-	Vector2 maxVertex;  // Maximum vertex coordinates
-	pixel** pixelMap;
+	// Register logarithmic and power functions
+	parser.DefineFun("LOG", [](double x) { return std::log(x); }); // Natural logarithm
+	parser.DefineFun("LOG10", [](double x) { return std::log10(x); }); // Base-10 logarithm
+	parser.DefineFun("EXP", [](double x) { return std::exp(x); }); // Exponential function
 
-	template<typename... Args>
-	void pushBackVectors(Args... args) {
-		(vertex.push_back(args), ...);
+	// Register square root and absolute value functions
+	parser.DefineFun("SQRT", [](double x) { return std::sqrt(x); });
+	parser.DefineFun("ABS", [](double x) { return std::abs(x); });
+
+	// Register constants
+	parser.DefineConst("PI", 3.14159265358979323846);
+	parser.DefineConst("E", 2.71828182845904523536);
+}
+
+void UserInput(int& phase, float& amplitude, int& yPosition, bool& updateGraph) {
+	if (IsKeyDown(KEY_LEFT)) {
+		phase += 5;
+		updateGraph = true;
+	}
+	if (IsKeyDown(KEY_RIGHT)) {
+		phase -= 5;
+		updateGraph = true;
+	}
+	if (IsKeyDown(KEY_Z)) {
+		amplitude += 1.5f;
+		updateGraph = true;
+	}
+	if (IsKeyDown(KEY_X) && amplitude > 0) {
+		amplitude -= 1.5f;
+		updateGraph = true;
+	}
+	if (IsKeyDown(KEY_UP)) {
+		yPosition += 2;
+		updateGraph = true;
+	}
+	if (IsKeyDown(KEY_DOWN)) {
+		yPosition -= 2;
+		updateGraph = true;
+	}
+	if (IsKeyPressed(KEY_SPACE)) {
+		// Set crosshair to the current mouse position
+		point = GetMousePosition();
+		point.x = static_cast<int>(point.x);
+		point.y = static_cast<int>(point.y);
+	}
+}
+
+void DrawGraphAxis(int yPosition, int numLabels, float amplitude, int phase) {
+	// Draw X and Y axis lines (X-axis now centered based on phase)
+	DrawLine(0, yPosition, 600, yPosition, WHITE);
+	DrawLine(300 - phase, 0, 300 - phase, 600, WHITE);
+	DrawText("@a_mariuuus", 100, 100, 10, DARKGRAY);
+	// Calculate the spacing for the labels
+	float xSpacing = 600.0f / numLabels;
+	float ySpacing = 600.0f / numLabels;
+
+	// Draw numbering for X and Y axes, ensuring they remain equidistant
+	for (int i = 0; i <= numLabels; i++) {
+		float xPos = i * xSpacing;
+		float yPos = i * ySpacing;
+
+		// X-axis numbering
+		float xValue = (xPos - 300 + phase) / amplitude;
+		DrawText(TextFormat("%.01f", xValue), xPos, yPosition + 5, 10, WHITE);
+
+		// Y-axis numbering
+		float yValue = (yPosition - yPos) / amplitude;
+		if (i != numLabels / 2)  // Avoid overlapping at origin
+			DrawText(TextFormat("%.01f", yValue), 305 - phase, yPos - 5, 10, WHITE);
+	}
+}
+
+void ResetGraph(int phase, float amplitude, int yPosition, mu::Parser& parser, std::vector<Vector2>& graphPoints, std::string& Expr) {
+	// Get a new expression from the user
+	Expr = GetUserInputAndSetExpression();
+	parser.SetExpr(Expr);
+
+	// Clear previous graph points
+	graphPoints.clear();
+
+	// Precompute graph values
+	for (float x = -600; x < 600; x += 1) {
+		double graphValue = 0;
+		try {
+			float graphX = (x + phase) / amplitude;
+			double x1 = static_cast<double>(graphX);
+			parser.DefineVar("X", &x1);
+			graphValue = parser.Eval() * amplitude;
+		}
+		catch (const mu::Parser::exception_type& e) {
+			std::cerr << "Parser error: " << e.GetMsg() << std::endl;
+			graphValue = 0;  // Fallback value
+		}
+
+		int xPos = static_cast<int>(300 + x);
+		if (xPos >= 0 && xPos < 600) {
+			graphPoints.push_back({ static_cast<float>(xPos), static_cast<float>(yPosition - static_cast<int>(graphValue)) });
+		}
 	}
 
-	// Find the bounding box size based on vertices
-	void FindSize() {
-		if (vertex.empty()) {
-			std::cerr << "No vertices to calculate size." << std::endl;
-			return;
+	// Debug print to verify the reset
+	std::cout << "Graph reset with expression: " << Expr << std::endl;
+}
+
+void UpdateGraph(int phase, float amplitude, int yPosition, mu::Parser& parser, std::vector<Vector2>& graphPoints, const std::string& Expr) {
+	parser.SetExpr(Expr);
+
+	// Clear previous graph points
+	graphPoints.clear();
+
+	// Precompute graph values
+	for (float x = -600; x < 600; x += 1) {
+		double graphValue = 0;
+		try {
+			float graphX = (x + phase) / amplitude;
+			double x1 = static_cast<double>(graphX);
+			parser.DefineVar("X", &x1);
+			graphValue = parser.Eval() * amplitude;
+		}
+		catch (const mu::Parser::exception_type& e) {
+			std::cerr << "Parser error: " << e.GetMsg() << std::endl;
+			graphValue = 0;  // Fallback value
 		}
 
-		minVertex = maxVertex = vertex[0];
-
-		for (const auto& v : vertex) {
-			if (v.x < minVertex.x) minVertex.x = v.x;
-			if (v.y < minVertex.y) minVertex.y = v.y;
-			if (v.x > maxVertex.x) maxVertex.x = v.x;
-			if (v.y > maxVertex.y) maxVertex.y = v.y;
+		int xPos = static_cast<int>(300 + x);
+		if (xPos >= 0 && xPos < 600) {
+			graphPoints.push_back({ static_cast<float>(xPos), static_cast<float>(yPosition - static_cast<int>(graphValue)) });
 		}
-
-		size = Vector2{ maxVertex.x - minVertex.x + 1, maxVertex.y - minVertex.y + 1 }; // +1 to include the edge
 	}
+}
 
-	// Allocate memory for the pixelMap
-	void AllocMat() {
-		pixelMap = new(std::nothrow) pixel * [static_cast<int>(size.x)];
-		if (!pixelMap) {
-			std::cerr << "Memory allocation failed for PixelMap." << std::endl;
-			exit(1);
+void DrawCrosshair(Vector2 point, int yPosition, int phase) {
+	if (point.x != -1) {
+		// Draw crosshair at the point
+		DrawCircle(static_cast<int>(point.x), static_cast<int>(point.y), 2.0f, RED);
+
+		// Draw horizontal dotted line from y-axis to the crosshair
+		if (point.x >= 300 - phase) {
+			for (int i = static_cast<int>(300 - phase); i < point.x; i += 2) {
+				DrawPixel(i, static_cast<int>(point.y), RED);
+			}
+		}
+		else {
+			for (int i = static_cast<int>(300 - phase); i > point.x; i -= 2) {
+				DrawPixel(i, static_cast<int>(point.y), RED);
+			}
 		}
 
-		for (int i = 0; i < size.x; i++) {
-			pixelMap[i] = new(std::nothrow) pixel[static_cast<int>(size.y)];
-			if (!pixelMap[i]) {
-				std::cerr << "Memory allocation failed for PixelMap row." << std::endl;
-				for (int k = 0; k < i; ++k) {
-					delete[] pixelMap[k];
-				}
-				delete[] pixelMap;
-				exit(1);
+		// Draw vertical dotted line from x-axis to the crosshair
+		if (point.y < yPosition) {
+			for (int i = static_cast<int>(point.y); i < yPosition; i += 2) {
+				DrawPixel(static_cast<int>(point.x), i, RED);
+			}
+		}
+		else {
+			for (int i = static_cast<int>(point.y); i > yPosition; i -= 2) {
+				DrawPixel(static_cast<int>(point.x), i, RED);
 			}
 		}
 	}
-
-	// Free allocated memory for the pixelMap
-	void DelMat() {
-		if (pixelMap) {
-			for (int i = 0; i < size.x; i++) {
-				delete[] pixelMap[i];
-			}
-			delete[] pixelMap;
-		}
-	}
-
-	// Initialize the object with white pixels within the bounding box defined by vertices
-	void CreateObject() {
-		if (!pixelMap) {
-			std::cerr << "PixelMap not allocated. Call AllocMat() first." << std::endl;
-			return;
-		}
-
-		// Set all pixels to transparent initially
-		for (int i = 0; i < size.x; i++) {
-			for (int j = 0; j < size.y; j++) {
-				pixelMap[i][j] = pixel{ 0, 0, 0, 0 };  // Fully transparent
-			}
-		}
-
-		// Draw white pixels within the bounding box
-		for (const auto& v : vertex) {
-			// Translate vertex position to the pixel map coordinate system
-			int x = static_cast<int>(v.x - minVertex.x);
-			int y = static_cast<int>(v.y - minVertex.y);
-
-			if (x >= 0 && x < size.x && y >= 0 && y < size.y) {
-				pixelMap[x][y] = pixel{ 255, 255, 255, 255 };  // Set to white (opaque)
-			}
-		}
-	}
-
-	// Destructor to free allocated memory
-	~object() {
-		DelMat();
-	}
-};
+}
 
 int main() {
-	InitWindow(600, 600, "Graph");
-	SetTargetFPS(144);
+	InitWindow(600, 600, "Graph with Crosshair");
+	SetTargetFPS(60);
 
+	mu::Parser parser;
+	InitializeParser(parser);
+
+	std::string Expr = GetUserInputAndSetExpression();
 	int phase = 0;
 	int yPosition = 300;  // Center y-axis
 	float amplitude = 2;
-	int func = 0;
+	bool updateGraph = true;
 
 	const int numLabels = 10;  // Number of labels along each axis
-	object Box;
-	Box.pushBackVectors(Vector2{ 0, 0 }, Vector2{ 25, 0 }, Vector2{ 25, 25 }, Vector2{ 0, 25 });
-	Box.FindSize();
-	Box.AllocMat();
-	Box.CreateObject();
+	std::vector<Vector2> graphPoints;
+
+	// Initial graph setup
+	UpdateGraph(phase, amplitude, yPosition, parser, graphPoints, Expr);
 
 	while (!WindowShouldClose()) {
 		// Input handling
-		if (IsKeyDown(KEY_LEFT)) phase--;
-		if (IsKeyDown(KEY_RIGHT)) phase++;
-		if (IsKeyDown(KEY_Z)) amplitude += 1.5f;
-		if (IsKeyDown(KEY_X) && amplitude > 0) amplitude -= 0.5f;
-		if (IsKeyDown(KEY_UP)) yPosition += 2;
-		if (IsKeyDown(KEY_DOWN)) yPosition -= 2;
-		if (IsKeyPressed(KEY_W) && func < 8) func++;
-		if (IsKeyPressed(KEY_S) && func > 0) func--;
+		UserInput(phase, amplitude, yPosition, updateGraph);
+
+		// Update graph only if phase, amplitude, or yPosition changed
+		if (updateGraph) {
+			UpdateGraph(phase, amplitude, yPosition, parser, graphPoints, Expr);
+			updateGraph = false;
+		}
+
+		// Reset on 'R' key press
+		if (IsKeyPressed(KEY_R)) {
+			ResetGraph(phase, amplitude, yPosition, parser, graphPoints, Expr);
+			updateGraph = false; // Ensure no further updates until input changes
+		}
 
 		BeginDrawing();
 		ClearBackground(BLACK);
 
-		// Draw X and Y axis lines
-		DrawLine(0, yPosition, 600, yPosition, WHITE); // X-axis at y = yPosition
-		DrawLine(300, 0, 300, 600, WHITE); // Y-axis at x = 300 (middle of window)
+		// Draw the axis with respect to the current phase
+		DrawGraphAxis(yPosition, numLabels, amplitude, phase);
 
-		// Calculate the spacing for the labels
-		float xSpacing = 600.0f / numLabels;   // Divide the window width by number of labels
-		float ySpacing = 600.0f / numLabels;   // Same for the height
-
-		// Draw numbering for X and Y axes, ensuring they remain equidistant
-		for (int i = 0; i <= numLabels; i++) {
-			float xPos = i * xSpacing;
-			float yPos = i * ySpacing;
-
-			// X-axis numbering (scale based on amplitude, move with position)
-			float xValue = (xPos - 300) / amplitude; // Center around the middle (300)
-			DrawText(TextFormat("%.01f", xValue), xPos, yPosition + 5, 10, WHITE);
-
-			// Y-axis numbering (scale based on amplitude, move with position)
-			float yValue = (yPosition - yPos) / amplitude; // Adjust y-values to account for position
-			if (i != numLabels / 2)  // Avoid overlapping at origin
-				DrawText(TextFormat("%.01f", yValue), 305, yPos - 5, 10, WHITE);
+		// Draw the graph using precomputed points
+		for (size_t i = 1; i < graphPoints.size(); i++) {
+			DrawLineV(graphPoints[i - 1], graphPoints[i], WHITE);
 		}
 
-		// Drawing the graph while maintaining position with amplitude changes
-		for (float x = -300; x < 300; x += 1 / (10 * amplitude)) {  // Adjust x step with amplitude
-			float graphValue = 0;
-
-			// Calculate graph output based on the selected function
-			if (func != 8) {
-				switch (func) {
-				case 7:
-					graphValue = amplitude * x;
-					break;
-				case 6:
-					graphValue = amplitude * std::pow(x, 2);
-					break;
-				case 5:
-					graphValue = amplitude * std::pow(2, x);
-					break;
-				case 4:
-					graphValue = amplitude * (1 / std::tan(phase + x / amplitude));
-					break;
-				case 3:
-					graphValue = amplitude * std::tan(phase + x / amplitude);
-					break;
-				case 2:
-					graphValue = amplitude * std::cos(phase + x / amplitude);
-					break;
-				case 1:
-					graphValue = amplitude * std::sin(phase + x / amplitude);
-					break;
-				case 0:
-					graphValue = 0; // Flat line at y = yPosition
-					break;
-				}
-
-				// Draw the pixel for the current x value with the calculated graph value
-				DrawPixel(300 + static_cast<int>(x * amplitude), yPosition - static_cast<int>(graphValue), WHITE);  // Scale x and graphValue consistently
-			}
-			else {
-				amplitude = 1 / 10;
-				for (int y = -300; y < 300; y++) {
-					// Ensure coordinates are within bounds
-					int px = static_cast<int>(x + 300);
-					int py = static_cast<int>(y + 300);
-					if (px >= 0 && px < static_cast<int>(Box.size.x) && py >= 0 && py < static_cast<int>(Box.size.y)) {
-						Color col = Color{ Box.pixelMap[px][py].r, Box.pixelMap[px][py].g, Box.pixelMap[px][py].b, Box.pixelMap[px][py].a };
-						DrawPixel(300 + x, yPosition - y, col);
-					}
-				}
-			}
-		}
+		// Draw the crosshairs
+		DrawCrosshair(point, yPosition, phase);
 
 		EndDrawing();
-		DrawText("@a_mariuuus", 100, 100, 10, GRAY);
 	}
 
 	CloseWindow();

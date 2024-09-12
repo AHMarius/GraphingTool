@@ -121,7 +121,7 @@ void ResetGraph(int phase, float amplitude, int yPosition, mu::Parser& parser, s
 void UpdateGraph(int phase, float amplitude, int yPosition, mu::Parser& parser, std::vector<Vector2>& graphPoints, const std::string& Expr) {
 	parser.SetExpr(Expr);
 
-	// Clear previous graph points
+	// Clear previous graph point
 	graphPoints.clear();
 
 	// Precompute graph values
